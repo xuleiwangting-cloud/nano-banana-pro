@@ -11,7 +11,7 @@ from io import BytesIO
 from PIL import Image, ImageDraw
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="Nano Banana Pro - V4.2 Permanent Data", layout="wide")
+st.set_page_config(page_title="Nano Banana Pro - Stable", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
@@ -36,7 +36,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-#              GitHub 数据同步模块 (V4.2 核心)
+#              GitHub 数据同步模块
 # ==========================================
 
 def get_github_config():
@@ -46,13 +46,14 @@ def get_github_config():
     return None, None
 
 def load_users_from_github():
-    """尝试从 GitHub 读取 users.json，如果失败则读本地"""
+    """尝试从 GitHub 读取 users.json"""
     token, repo = get_github_config()
     if not token or not repo:
-        # 没配置 token，回退到本地模式
         if os.path.exists(USERS_FILE):
-            with open(USERS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+            try:
+                with open(USERS_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except: return {}
         return {}
 
     url = f"https://api.github.com/repos/{repo}/contents/{USERS_FILE}"
@@ -63,35 +64,29 @@ def load_users_from_github():
         if resp.status_code == 200:
             content = base64.b64decode(resp.json()["content"]).decode("utf-8")
             return json.loads(content)
-        elif resp.status_code == 404:
-            return {} # 文件不存在
-        else:
-            st.error(f"GitHub 读取失败: {resp.status_code}")
-            return {}
-    except Exception as e:
-        st.error(f"网络错误: {e}")
+        return {}
+    except:
         return {}
 
 def save_users_to_github(users):
     """将 users.json 同步写入 GitHub"""
-    token, repo = get_github_config()
-    
-    # 1. 如果没有配置云端存储，仅保存本地
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, indent=4)
+    # 1. 保存本地副本
+    try:
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(users, f, indent=4)
+    except: pass
         
+    token, repo = get_github_config()
     if not token or not repo:
-        return # 本地模式结束
+        return
 
-    # 2. 云端同步模式
+    # 2. 同步云端
     url = f"https://api.github.com/repos/{repo}/contents/{USERS_FILE}"
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     
-    # 将 JSON 转换为 Base64
     json_str = json.dumps(users, indent=4)
     content_b64 = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
     
-    # 获取当前文件的 SHA (更新文件必须提供)
     sha = None
     try:
         get_resp = requests.get(url, headers=headers)
@@ -99,334 +94,232 @@ def save_users_to_github(users):
             sha = get_resp.json()["sha"]
     except: pass
 
-    data = {
-        "message": "Update users.json via Nano Banana Pro",
-        "content": content_b64
-    }
-    if sha:
-        data["sha"] = sha
+    data = {"message": "Update users via App", "content": content_b64}
+    if sha: data["sha"] = sha
         
     try:
-        put_resp = requests.put(url, headers=headers, json=data)
-        if put_resp.status_code not in [200, 201]:
-            st.warning(f"⚠️ 云端同步失败 (Code {put_resp.status_code})，但本地已保存。")
-    except Exception as e:
-        st.warning(f"⚠️ 网络同步错误: {e}")
+        requests.put(url, headers=headers, json=data)
+    except: pass
 
 # ==========================================
-#              鉴权逻辑 (适配新存储)
+#              鉴权逻辑
 # ==========================================
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def init_auth_state():
-    if "user_info" not in st.session_state:
-        st.session_state.user_info = None
-    if "auth_page" not in st.session_state:
-        st.session_state.auth_page = "login"
+    if "user_info" not in st.session_state: st.session_state.user_info = None
+    if "auth_page" not in st.session_state: st.session_state.auth_page = "login"
 
 def login_page():
     st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (云端同步版)</h2>", unsafe_allow_html=True)
-    
-    # 加载用户 (优先从 GitHub)
     users = load_users_from_github()
     
-    if not users:
-        st.warning("⚠️ 数据库为空，请注册管理员账号。")
+    if not users: st.warning("⚠️ 请注册管理员账号")
 
     tabs = st.tabs(["登录", "注册账号"])
     
     with tabs[0]:
-        with st.form("login_form"):
-            username = st.text_input("用户名")
-            password = st.text_input("密码", type="password")
-            submit = st.form_submit_button("登录")
-            
-            if submit:
-                if username not in users:
-                    st.error("用户不存在")
-                elif users[username]["password"] != hash_password(password):
-                    st.error("密码错误")
-                elif not users[username].get("approved", False):
-                    st.error("🚫 账号待审核：请联系管理员")
+        with st.form("login"):
+            u = st.text_input("用户名")
+            p = st.text_input("密码", type="password")
+            if st.form_submit_button("登录"):
+                if u not in users: st.error("用户不存在")
+                elif users[u]["password"] != hash_password(p): st.error("密码错误")
+                elif not users[u].get("approved", False): st.error("🚫 待审核")
                 else:
-                    st.session_state.user_info = {
-                        "username": username,
-                        "role": users[username].get("role", "user")
-                    }
-                    st.success("登录成功！")
+                    st.session_state.user_info = {"username": u, "role": users[u].get("role", "user")}
+                    st.success("成功")
                     st.rerun()
 
     with tabs[1]:
-        with st.form("register_form"):
-            new_user = st.text_input("设置用户名")
-            new_pass = st.text_input("设置密码", type="password")
-            new_pass2 = st.text_input("确认密码", type="password")
-            reg_submit = st.form_submit_button("注册")
-            
-            if reg_submit:
-                if not new_user or not new_pass:
-                    st.error("不能为空")
-                elif new_pass != new_pass2:
-                    st.error("密码不一致")
-                elif new_user in users:
-                    st.error("用户名已存在")
+        with st.form("reg"):
+            nu = st.text_input("用户名")
+            np = st.text_input("密码", type="password")
+            np2 = st.text_input("确认密码", type="password")
+            if st.form_submit_button("注册"):
+                if not nu or not np: st.error("不能为空")
+                elif np != np2: st.error("密码不一致")
+                elif nu in users: st.error("已存在")
                 else:
                     is_first = (len(users) == 0)
-                    users[new_user] = {
-                        "password": hash_password(new_pass),
+                    users[nu] = {
+                        "password": hash_password(np),
                         "role": "admin" if is_first else "user",
                         "approved": True if is_first else False,
                         "created_at": str(datetime.datetime.now())
                     }
-                    # ⚠️ 关键：保存并同步到 GitHub
                     save_users_to_github(users)
-                    
-                    if is_first:
-                        st.success("🎉 管理员注册成功！请登录。")
-                    else:
-                        st.info("✅ 申请已提交，等待管理员审核。")
+                    if is_first: st.success("管理员注册成功，请登录")
+                    else: st.info("申请已提交，等待审核")
 
-def admin_sidebar_panel():
+def admin_panel():
     if st.session_state.user_info and st.session_state.user_info["role"] == "admin":
         with st.sidebar.expander("🛡️ 管理员后台", expanded=False):
-            st.write("点击按钮审核用户：")
-            users = load_users_from_github() # 每次操作前拉取最新数据
+            users = load_users_from_github()
             dirty = False
-            
-            for u, data in users.items():
+            for u, d in users.items():
                 if u == st.session_state.user_info["username"]: continue
-                c1, c2 = st.columns([3, 2])
-                c1.text(f"{u} ({'✅' if data['approved'] else '⏳'})")
-                
-                if not data['approved']:
-                    if c2.button("通过", key=f"app_{u}"):
-                        users[u]['approved'] = True
-                        dirty = True
+                c1, c2 = st.columns([3,2])
+                c1.text(f"{u} {'✅' if d['approved'] else '⏳'}")
+                if not d['approved']:
+                    if c2.button("通过", key=f"a_{u}"): users[u]['approved']=True; dirty=True
                 else:
-                    if c2.button("冻结", key=f"ban_{u}"):
-                        users[u]['approved'] = False
-                        dirty = True
-            
+                    if c2.button("冻结", key=f"b_{u}"): users[u]['approved']=False; dirty=True
             if dirty:
-                save_users_to_github(users) # ⚠️ 关键：审核结果同步回 GitHub
-                st.success("已更新并同步")
-                time.sleep(1)
+                save_users_to_github(users)
                 st.rerun()
 
 # ==========================================
-#              核心功能模块 (V4.2)
+#              核心功能模块
 # ==========================================
 
-def log_message(msg, type="info"):
+def log_msg(msg, t="info"):
     if "logs" not in st.session_state: st.session_state.logs = []
-    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-    st.session_state.logs.append(f"[{timestamp}] [{type.upper()}] {msg}")
+    st.session_state.logs.append(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] [{t.upper()}] {msg}")
 
-def compress_image_for_api(image, max_size=1024, quality=90):
-    img = image.copy()
-    if img.mode != "RGB": img = img.convert("RGB")
-    w, h = img.size
-    if max(w, h) > max_size:
-        scale = max_size / max(w, h)
-        img = img.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
-    buffer = BytesIO()
-    img.save(buffer, format="JPEG", quality=quality)
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+def compress_img(image, max_size=1024):
+    img = image.copy().convert("RGB")
+    if max(img.size) > max_size:
+        scale = max_size / max(img.size)
+        img = img.resize((int(img.width * scale), int(img.height * scale)), Image.Resampling.LANCZOS)
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
 
-def get_all_canvas_coords(canvas_result, orig_w, orig_h, canvas_w, canvas_h):
-    if canvas_result.json_data is None: return []
-    objects = canvas_result.json_data.get("objects", [])
-    if not objects: return []
-    coords_list = []
-    for r in objects:
-        sx = int(r["left"] / canvas_w * orig_w)
-        sy = int(r["top"] / canvas_h * orig_h)
-        sw = int(r["width"] / canvas_w * orig_w)
-        sh = int(r["height"] / canvas_h * orig_h)
-        coords_list.append((sx, sy, sx+sw, sy+sh))
-    return coords_list
+def get_coords(res, ow, oh, cw, ch):
+    if res.json_data is None: return []
+    return [(int(r["left"]/cw*ow), int(r["top"]/ch*oh), int((r["left"]+r["width"])/cw*ow), int((r["top"]+r["height"])/ch*oh)) for r in res.json_data.get("objects", [])]
 
-def draw_all_visual_boxes(image, coords_list, color):
-    if not coords_list: return image
-    img_copy = image.copy()
-    draw = ImageDraw.Draw(img_copy)
-    for box in coords_list:
-        draw.rectangle(box, outline=color, width=8) 
-    return img_copy
+def draw_boxes(img, coords, color):
+    if not coords: return img
+    i = img.copy()
+    draw = ImageDraw.Draw(i)
+    for b in coords: draw.rectangle(b, outline=color, width=8)
+    return i
 
-def call_image_generation(api_key, model_name, user_prompt, img_location_map_b64, img_source_feat_b64, img_clean_canvas_b64, api_format):
-    log_message(f"🚀 发起请求 - 模型: {model_name}", "info")
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    
-    system_instruction = """
-    【CRITICAL INSTRUCTION】
-    You are an expert image editor. You will receive 3 images to perform a "Local Feature Transfer" task.
-    IMAGE 1: "Location Map" (Contains RED BOXES). Function: ONLY tells you COORDINATES to edit. DO NOT copy red boxes.
-    IMAGE 2: "Source Feature" (Contains BLUE BOXES). Function: Tells you WHAT visual features to copy.
-    IMAGE 3: "Clean Canvas" (Original Image). Function: This is your drawing canvas.
-    **RULE:** Apply features from Image 2 onto Image 3 at the locations specified by Image 1.
-    **OUTPUT:** The final image must be clean like Image 3. NO RED BOXES allowed!
-    """
-    final_prompt = f"{system_instruction}\n\nUSER COMMAND: {user_prompt}"
+def call_api(key, model, prompt, map_b64, feat_b64, clean_b64, fmt):
+    log_msg(f"发起请求: {model}")
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    sys_prompt = "You are an expert image editor. IMAGE 1: Location Map (RED BOXES) - Where to edit. IMAGE 2: Source Feature (BLUE BOXES) - What to copy. IMAGE 3: Clean Canvas - Draw here. RULE: Apply features from Img2 to Img3 at Img1 locations. OUTPUT: Clean image, NO RED BOXES."
     
     try:
-        if api_format == "chat":
+        if fmt == "chat":
             payload = {
-                "model": model_name,
+                "model": model,
                 "messages": [{
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "【Image 1: Location Map (RED BOXES)】"},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_location_map_b64}"}},
-                        {"type": "text", "text": "\n\n【Image 2: Source Feature (BLUE BOXES)】"},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_source_feat_b64}"}},
-                        {"type": "text", "text": "\n\n【Image 3: Clean Canvas (Target)】"},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_clean_canvas_b64}"}},
-                        {"type": "text", "text": f"\n\n{final_prompt}"}
+                        {"type": "text", "text": "【Map (RED)】"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{map_b64}"}},
+                        {"type": "text", "text": "【Source (BLUE)】"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{feat_b64}"}},
+                        {"type": "text", "text": "【Canvas】"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{clean_b64}"}},
+                        {"type": "text", "text": f"\n\n{sys_prompt}\nUSER: {prompt}"}
                     ]
-                }],
-                "max_tokens": 4096, "temperature": 0.55
+                }], "max_tokens": 4096
             }
-            endpoint = f"{VECTOR_ENGINE_BASE}/chat/completions"
+            ep = f"{VECTOR_ENGINE_BASE}/chat/completions"
         else:
-            payload = {
-                "model": model_name, "prompt": final_prompt + " DO NOT DRAW RED BOXES.",
-                "image": f"data:image/jpeg;base64,{img_clean_canvas_b64}", 
-                "control_image": f"data:image/jpeg;base64,{img_location_map_b64}",
-                "size": "1024x1024", "n": 1
-            }
-            endpoint = f"{VECTOR_ENGINE_BASE}/images/generations"
+            payload = {"model": model, "prompt": prompt + " NO RED BOXES", "image": f"data:image/jpeg;base64,{clean_b64}", "control_image": f"data:image/jpeg;base64,{map_b64}", "size": "1024x1024"}
+            ep = f"{VECTOR_ENGINE_BASE}/images/generations"
 
-        log_message("⏳ 数据发送中...", "info")
-        response = requests.post(endpoint, headers=headers, json=payload, timeout=240)
+        resp = requests.post(ep, headers=headers, json=payload, timeout=240)
+        if resp.status_code != 200: return None, f"HTTP {resp.status_code}", resp.text
         
-        if response.status_code != 200:
-            log_message(f"❌ API Error: {response.status_code}", "error")
-            return None, f"HTTP {response.status_code}", response.text
-
-        res_json = response.json()
-        img_url = None
-        if "data" in res_json and res_json["data"]:
-            d = res_json["data"][0]
-            if "url" in d: img_url = d["url"]
-            elif "b64_json" in d: img_url = f"data:image/jpeg;base64,{d['b64_json']}"
-        if not img_url and "choices" in res_json:
-            content = res_json["choices"][0]["message"]["content"]
-            md_match = re.search(r'!\[.*?\]\((https?://\S+|data:image/[^;]+;base64,[^\)]+)\)', content)
-            if md_match: img_url = md_match.group(1)
-            else:
-                url_match = re.search(r'(https?://[^\s\)"\'<>]+)', content)
-                if url_match: img_url = url_match.group(1)
-        if img_url: return img_url, None, response.text
-        return None, "解析失败", response.text
-    except Exception as e:
-        return None, f"程序异常: {str(e)}", None
+        rj = resp.json()
+        url = None
+        if "data" in rj and rj["data"]:
+            d = rj["data"][0]
+            url = d.get("url") or (f"data:image/jpeg;base64,{d['b64_json']}" if "b64_json" in d else None)
+        if not url and "choices" in rj:
+            c = rj["choices"][0]["message"]["content"]
+            m = re.search(r'\((https?://\S+|data:image/[^;]+;base64,[^\)]+)\)', c)
+            if m: url = m.group(1)
+            
+        return url, None, resp.text
+    except Exception as e: return None, str(e), None
 
 # ==========================================
-#              主应用逻辑
+#              主应用入口
 # ==========================================
 
 def main_app():
     with st.sidebar:
-        st.write(f"👤 用户: **{st.session_state.user_info['username']}**")
-        if st.button("🚪 退出"):
-            st.session_state.user_info = None
-            st.rerun()
+        st.write(f"👤 **{st.session_state.user_info['username']}**")
+        if st.button("退出"): st.session_state.user_info=None; st.rerun()
         st.markdown("---")
-        admin_sidebar_panel()
-        st.title("⚙️ 工作室配置")
+        admin_panel()
         
-        # 优先从 Secrets 读取
-        if "init_config" not in st.session_state:
+        if "init_cfg" not in st.session_state:
             if "ve_key" in st.secrets:
-                st.session_state.ve_key = st.secrets["ve_key"]
-                st.session_state.ve_model = st.secrets.get("ve_model", "gemini-2.0-flash-exp")
-                st.session_state.api_format = st.secrets.get("api_format", "chat")
-            st.session_state.init_config = True
+                st.session_state.k = st.secrets["ve_key"]
+                st.session_state.m = st.secrets.get("ve_model", "gemini-2.0-flash-exp")
+                st.session_state.f = st.secrets.get("api_format", "chat")
+            st.session_state.init_cfg = True
 
-        st.session_state.ve_key = st.text_input("API 密钥 (Secrets优先)", value=st.session_state.get("ve_key", ""), type="password")
-        st.session_state.ve_model = st.text_input("模型 ID", value=st.session_state.get("ve_model", ""), placeholder="gemini-2.0-flash-exp")
-        api_fmt = st.radio("调用模式", ["chat", "image"], index=0 if st.session_state.get("api_format")=="chat" else 1)
-        st.session_state.api_format = api_fmt
+        st.session_state.k = st.text_input("API Key", value=st.session_state.get("k", ""), type="password")
+        st.session_state.m = st.text_input("Model ID", value=st.session_state.get("m", ""))
+        st.session_state.f = st.radio("Mode", ["chat", "image"], index=0 if st.session_state.get("f")=="chat" else 1)
         
-        if st.button("💾 保存配置"):
-            with open(CONFIG_FILE, "w", encoding='utf-8') as f:
-                json.dump({"ve_key": st.session_state.ve_key, "ve_model": st.session_state.ve_model, "api_format": api_fmt}, f)
-            st.success("已保存(本地)")
-        
-        st.markdown("---")
-        if st.button("🗑️ 清空日志"): st.session_state.logs = []; st.rerun()
+        if st.button("清空日志"): st.session_state.logs=[]; st.rerun()
         if "logs" in st.session_state: st.markdown(f'<div class="log-container">{"<br>".join(st.session_state.logs[::-1])}</div>', unsafe_allow_html=True)
 
-    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · 电商专用版</h1>", unsafe_allow_html=True)
-    if not CANVAS_AVAILABLE: st.error("请安装依赖: pip install streamlit-drawable-canvas"); st.stop()
+    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · 兼容版</h1>", unsafe_allow_html=True)
+    if not CANVAS_AVAILABLE: st.error("Missing dependency"); st.stop()
 
     c1, c2 = st.columns(2)
-    CANVAS_WIDTH = 400
+    cw = 400
     with c1:
-        f1 = st.file_uploader("📂 图1", type=["jpg", "png"], key="u1")
-        if f1: st.session_state.cached_img1 = Image.open(f1).convert("RGB")
-        elif "cached_img1" in st.session_state and not f1: del st.session_state.cached_img1
+        f1 = st.file_uploader("图1 (场景)", type=["jpg","png"], key="u1")
+        if f1: st.session_state.img1 = Image.open(f1).convert("RGB")
+        elif "img1" in st.session_state and not f1: del st.session_state.img1
     with c2:
-        f2 = st.file_uploader("📂 图2", type=["jpg", "png"], key="u2")
-        if f2: st.session_state.cached_img2 = Image.open(f2).convert("RGB")
-        elif "cached_img2" in st.session_state and not f2: del st.session_state.cached_img2
+        f2 = st.file_uploader("图2 (商品)", type=["jpg","png"], key="u2")
+        if f2: st.session_state.img2 = Image.open(f2).convert("RGB")
+        elif "img2" in st.session_state and not f2: del st.session_state.img2
 
-    if "cached_img1" in st.session_state and "cached_img2" in st.session_state:
+    if "img1" in st.session_state and "img2" in st.session_state:
         st.markdown("---")
         cc1, cc2 = st.columns(2)
+        i1, i2 = st.session_state.img1, st.session_state.img2
+        h1 = int(i1.height * (cw/i1.width))
+        h2 = int(i2.height * (cw/i2.width))
+        
         with cc1:
-            st.markdown("**图1操作：框选 (红框)**")
-            img1 = st.session_state.cached_img1
-            w1, h1 = img1.size
-            h_can1 = int(h1 * (CANVAS_WIDTH/w1))
-            res1 = st_canvas(fill_color="rgba(255, 0, 0, 0.1)", stroke_width=2, stroke_color="#FF0000", background_image=img1, height=h_can1, width=CANVAS_WIDTH, drawing_mode="rect", key=f"can1_{f1.name if f1 else 'def'}")
+            st.write("👉 **框选位置 (红框)**")
+            r1 = st_canvas(fill_color="rgba(255,0,0,0.1)", stroke_color="#F00", background_image=i1, height=h1, width=cw, drawing_mode="rect", key=f"c1_{f1.name}")
         with cc2:
-            st.markdown("**图2操作：框选 (蓝框)**")
-            img2 = st.session_state.cached_img2
-            w2, h2 = img2.size
-            h_can2 = int(h2 * (CANVAS_WIDTH/w2))
-            res2 = st_canvas(fill_color="rgba(0, 0, 255, 0.1)", stroke_width=2, stroke_color="#0000FF", background_image=img2, height=h_can2, width=CANVAS_WIDTH, drawing_mode="rect", key=f"can2_{f2.name if f2 else 'def'}")
+            st.write("👉 **框选特征 (蓝框)**")
+            r2 = st_canvas(fill_color="rgba(0,0,255,0.1)", stroke_color="#00F", background_image=i2, height=h2, width=cw, drawing_mode="rect", key=f"c2_{f2.name}")
 
-        st.markdown("---")
-        prompt = st.text_area("💬 提示词", value="", placeholder="例如：把图2的商品放入图1的所有红框位置...", height=80)
-        st.write("") 
-        btn_start = st.button("🚀 开始执行", type="primary")
-
-        if btn_start:
-            if not st.session_state.ve_key: st.error("❌ 请检查配置")
-            elif not prompt.strip(): st.warning("⚠️ 请输入提示词")
+        prompt = st.text_area("提示词", height=80)
+        if st.button("🚀 开始生成", type="primary"):
+            if not st.session_state.k: st.error("请配置 Key")
+            elif not prompt: st.warning("请输入提示词")
             else:
-                if "result_image" not in st.session_state: st.session_state.result_image = None
-                status = st.status("正在处理...", expanded=True)
-                boxes1 = get_all_canvas_coords(res1, w1, h1, CANVAS_WIDTH, h_can1)
-                boxes2 = get_all_canvas_coords(res2, w2, h2, CANVAS_WIDTH, h_can2)
-                status.write(f"✂️ 构建逻辑...")
-                img_clean = compress_image_for_api(img1)
-                img1_boxed = compress_image_for_api(draw_all_visual_boxes(img1, boxes1, "#FF0000") if boxes1 else img1)
-                img2_boxed = compress_image_for_api(draw_all_visual_boxes(img2, boxes2, "#0000FF") if boxes2 else img2)
-
-                status.write(f"📡 发送请求 ({st.session_state.ve_model})...")
-                img_url, err_msg, raw_resp = call_image_generation(st.session_state.ve_key, st.session_state.ve_model, prompt, img1_boxed, img2_boxed, img_clean, st.session_state.api_format)
+                # === 兼容性修改：使用 st.spinner 代替 st.status ===
+                with st.spinner("正在合成中，请稍候..."):
+                    b1 = get_coords(r1, i1.width, i1.height, cw, h1)
+                    b2 = get_coords(r2, i2.width, i2.height, cw, h2)
+                    
+                    ib1 = compress_img(draw_boxes(i1, b1, "#F00") if b1 else i1)
+                    ib2 = compress_img(draw_boxes(i2, b2, "#00F") if b2 else i2)
+                    ic = compress_img(i1)
+                    
+                    url, err, raw = call_api(st.session_state.k, st.session_state.m, prompt, ib1, ib2, ic, st.session_state.f)
                 
-                if img_url:
-                    st.session_state.result_image = img_url
-                    status.update(label="✅ 成功!", state="complete")
+                if url:
+                    st.session_state.res = url
+                    st.success("✅ 生成成功!")
                 else:
-                    status.update(label="❌ 失败", state="error")
-                    st.error(f"❌ 错误: {err_msg}")
-                    with st.expander("详情"): st.code(raw_resp)
+                    st.error(f"失败: {err}")
+                    with st.expander("日志"): st.code(raw)
 
-    if "result_image" in st.session_state and st.session_state.result_image:
+    if "res" in st.session_state:
         st.markdown("---")
-        col_show, col_dl = st.columns([3, 1])
-        with col_show: st.image(st.session_state.result_image, caption="结果", use_column_width=True)
-        with col_dl:
-            st.success("✅ 图片就绪")
-            st.link_button("📥 查看原图", st.session_state.result_image)
+        st.image(st.session_state.res, caption="结果", use_column_width=True)
 
+# 启动
 init_auth_state()
-if st.session_state.user_info is None: login_page()
+if not st.session_state.user_info: login_page()
 else: main_app()
