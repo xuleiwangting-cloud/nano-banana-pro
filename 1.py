@@ -2,7 +2,6 @@ import streamlit as st
 import hashlib
 import json
 import os
-import time
 import base64
 import re
 import requests
@@ -11,7 +10,7 @@ from io import BytesIO
 from PIL import Image, ImageDraw
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="Nano Banana Pro - Fixed", layout="wide")
+st.set_page_config(page_title="Nano Banana Pro - Visual Fix", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
@@ -24,7 +23,7 @@ CONFIG_FILE = "config.json"
 USERS_FILE = "users.json"
 VECTOR_ENGINE_BASE = "https://api.vectorengine.ai/v1"
 
-# CSS 样式
+# CSS 样式 (强制亮色背景适配)
 st.markdown("""
 <style>
     .stApp { background-color: #f5f5f7; }
@@ -32,6 +31,10 @@ st.markdown("""
         max-height: 300px; overflow-y: auto; background-color: #1e1e1e; color: #00ff00; padding: 10px; border-radius: 5px; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap;
     }
     .stButton>button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; background-color: #FF6600; color: white; }
+    /* 强制画板容器为白色，避免深色模式干扰 */
+    iframe[title="streamlit_drawable_canvas.st_canvas"] {
+        background-color: white;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -177,16 +180,17 @@ def draw_boxes(img, coords, color):
     if not coords: return img
     i = img.copy()
     draw = ImageDraw.Draw(i)
-    # 这里设置 AI 看到的框的粗细，5px 比较适中
+    # AI 识别用的框，保持 5px 以便识别
     for b in coords: draw.rectangle(b, outline=color, width=5)
     return i
 
 def resize_for_canvas(image, canvas_width):
-    """将图片调整为适合画板显示的尺寸，解决不显示问题"""
+    """将图片调整为适合画板显示的尺寸"""
     w, h = image.size
     ratio = canvas_width / w
     new_h = int(h * ratio)
-    return image.resize((canvas_width, new_h), Image.Resampling.LANCZOS), new_h
+    # 强制转为 RGB，防止 RGBA 透明图在黑底上变黑
+    return image.resize((canvas_width, new_h), Image.Resampling.LANCZOS).convert("RGB"), new_h
 
 def call_api(key, model, prompt, map_b64, feat_b64, clean_b64, fmt):
     log_msg(f"发起请求: {model}")
@@ -257,54 +261,66 @@ def main_app():
     if not CANVAS_AVAILABLE: st.error("依赖未安装，请运行 pip install"); st.stop()
 
     c1, c2 = st.columns(2)
-    # 设置画板宽度为固定值，防止图片过大
     CANVAS_WIDTH = 400
     
     with c1:
         f1 = st.file_uploader("图1 (场景)", type=["jpg","png"], key="u1")
-        if f1: st.session_state.img1 = Image.open(f1).convert("RGB")
-        elif "img1" in st.session_state and not f1: 
-            if "img1" in st.session_state: del st.session_state.img1
+        if f1:
+            # 增加缓存判断，防止重复读取导致错误
+            if "last_f1" not in st.session_state or st.session_state.last_f1 != f1.name:
+                st.session_state.img1 = Image.open(f1).convert("RGB")
+                st.session_state.last_f1 = f1.name
 
     with c2:
         f2 = st.file_uploader("图2 (商品)", type=["jpg","png"], key="u2")
-        if f2: st.session_state.img2 = Image.open(f2).convert("RGB")
-        elif "img2" in st.session_state and not f2: 
-            if "img2" in st.session_state: del st.session_state.img2
+        if f2:
+             if "last_f2" not in st.session_state or st.session_state.last_f2 != f2.name:
+                st.session_state.img2 = Image.open(f2).convert("RGB")
+                st.session_state.last_f2 = f2.name
 
     if "img1" in st.session_state and "img2" in st.session_state:
         st.markdown("---")
         cc1, cc2 = st.columns(2)
         
-        # 预处理图片尺寸，确保显示正常
+        # 预处理图片尺寸
         disp_img1, h_can1 = resize_for_canvas(st.session_state.img1, CANVAS_WIDTH)
         disp_img2, h_can2 = resize_for_canvas(st.session_state.img2, CANVAS_WIDTH)
         
         with cc1:
             st.write("👉 **框选位置 (红框)**")
-            # stroke_width=2 设置画板上的框比较细，drawing_mode="rect"
+            # 调试预览：确保图片在Python层面是好的
+            with st.expander("🔍 预览原图 (点此展开检查)", expanded=False):
+                st.image(disp_img1, width=150)
+
+            # stroke_width=1 线条改细
+            # background_color="#ffffff" 强制白底，解决黑屏问题
             res1 = st_canvas(
                 fill_color="rgba(255, 0, 0, 0.2)", 
-                stroke_width=2, 
+                stroke_width=1, 
                 stroke_color="#FF0000", 
+                background_color="#ffffff",
                 background_image=disp_img1, 
                 height=h_can1, 
                 width=CANVAS_WIDTH, 
                 drawing_mode="rect", 
-                key=f"c1_{f1.name}"
+                key=f"c1_{st.session_state.last_f1}"
             )
             
         with cc2:
             st.write("👉 **框选特征 (蓝框)**")
+            with st.expander("🔍 预览原图", expanded=False):
+                st.image(disp_img2, width=150)
+                
             res2 = st_canvas(
                 fill_color="rgba(0, 0, 255, 0.2)", 
-                stroke_width=2, 
+                stroke_width=1, 
                 stroke_color="#0000FF", 
+                background_color="#ffffff",
                 background_image=disp_img2, 
                 height=h_can2, 
                 width=CANVAS_WIDTH, 
                 drawing_mode="rect", 
-                key=f"c2_{f2.name}"
+                key=f"c2_{st.session_state.last_f2}"
             )
 
         prompt = st.text_area("提示词", height=80, placeholder="例如：把图2的商品放入图1的红框位置")
@@ -314,11 +330,10 @@ def main_app():
             elif not prompt: st.warning("请输入提示词")
             else:
                 with st.spinner("正在合成中，请稍候..."):
-                    # 获取坐标（基于显示尺寸计算）
                     boxes1 = get_coords(res1, st.session_state.img1.width, st.session_state.img1.height, CANVAS_WIDTH, h_can1)
                     boxes2 = get_coords(res2, st.session_state.img2.width, st.session_state.img2.height, CANVAS_WIDTH, h_can2)
                     
-                    # 生成用于发送给 API 的图片（框会稍微加粗到 5px，让 AI 看得更清）
+                    # 生成时用粗一点的框(5px)让AI看清，但用户画的时候是细框(1px)
                     ib1 = compress_img(draw_boxes(st.session_state.img1, boxes1, "#FF0000") if boxes1 else st.session_state.img1)
                     ib2 = compress_img(draw_boxes(st.session_state.img2, boxes2, "#0000FF") if boxes2 else st.session_state.img2)
                     ic = compress_img(st.session_state.img1)
