@@ -1,4 +1,6 @@
+streamlit==1.28.0  # 或者尝试更早的 1.25.0
 streamlit
 requests
 Pillow
+
 streamlit-drawable-canvas
