@@ -11,7 +11,7 @@ from io import BytesIO
 from PIL import Image, ImageDraw
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="Nano Banana Pro - Stable", layout="wide")
+st.set_page_config(page_title="Nano Banana Pro - Fixed", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
@@ -40,65 +40,51 @@ st.markdown("""
 # ==========================================
 
 def get_github_config():
-    """从 Secrets 获取 GitHub 配置"""
     if "github_token" in st.secrets and "repo_name" in st.secrets:
         return st.secrets["github_token"], st.secrets["repo_name"]
     return None, None
 
 def load_users_from_github():
-    """尝试从 GitHub 读取 users.json"""
     token, repo = get_github_config()
     if not token or not repo:
         if os.path.exists(USERS_FILE):
             try:
-                with open(USERS_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                with open(USERS_FILE, "r", encoding="utf-8") as f: return json.load(f)
             except: return {}
         return {}
 
     url = f"https://api.github.com/repos/{repo}/contents/{USERS_FILE}"
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-    
     try:
         resp = requests.get(url, headers=headers)
         if resp.status_code == 200:
             content = base64.b64decode(resp.json()["content"]).decode("utf-8")
             return json.loads(content)
         return {}
-    except:
-        return {}
+    except: return {}
 
 def save_users_to_github(users):
-    """将 users.json 同步写入 GitHub"""
-    # 1. 保存本地副本
     try:
-        with open(USERS_FILE, "w", encoding="utf-8") as f:
-            json.dump(users, f, indent=4)
+        with open(USERS_FILE, "w", encoding="utf-8") as f: json.dump(users, f, indent=4)
     except: pass
         
     token, repo = get_github_config()
-    if not token or not repo:
-        return
+    if not token or not repo: return
 
-    # 2. 同步云端
     url = f"https://api.github.com/repos/{repo}/contents/{USERS_FILE}"
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-    
     json_str = json.dumps(users, indent=4)
     content_b64 = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
     
     sha = None
     try:
         get_resp = requests.get(url, headers=headers)
-        if get_resp.status_code == 200:
-            sha = get_resp.json()["sha"]
+        if get_resp.status_code == 200: sha = get_resp.json()["sha"]
     except: pass
 
-    data = {"message": "Update users via App", "content": content_b64}
+    data = {"message": "Update users", "content": content_b64}
     if sha: data["sha"] = sha
-        
-    try:
-        requests.put(url, headers=headers, json=data)
+    try: requests.put(url, headers=headers, json=data)
     except: pass
 
 # ==========================================
@@ -115,11 +101,9 @@ def init_auth_state():
 def login_page():
     st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (云端同步版)</h2>", unsafe_allow_html=True)
     users = load_users_from_github()
-    
     if not users: st.warning("⚠️ 请注册管理员账号")
 
     tabs = st.tabs(["登录", "注册账号"])
-    
     with tabs[0]:
         with st.form("login"):
             u = st.text_input("用户名")
@@ -130,8 +114,7 @@ def login_page():
                 elif not users[u].get("approved", False): st.error("🚫 待审核")
                 else:
                     st.session_state.user_info = {"username": u, "role": users[u].get("role", "user")}
-                    st.success("成功")
-                    st.rerun()
+                    st.success("成功"); st.rerun()
 
     with tabs[1]:
         with st.form("reg"):
@@ -151,7 +134,7 @@ def login_page():
                         "created_at": str(datetime.datetime.now())
                     }
                     save_users_to_github(users)
-                    if is_first: st.success("管理员注册成功，请登录")
+                    if is_first: st.success("管理员注册成功"); st.rerun()
                     else: st.info("申请已提交，等待审核")
 
 def admin_panel():
@@ -167,9 +150,7 @@ def admin_panel():
                     if c2.button("通过", key=f"a_{u}"): users[u]['approved']=True; dirty=True
                 else:
                     if c2.button("冻结", key=f"b_{u}"): users[u]['approved']=False; dirty=True
-            if dirty:
-                save_users_to_github(users)
-                st.rerun()
+            if dirty: save_users_to_github(users); st.rerun()
 
 # ==========================================
 #              核心功能模块
@@ -196,8 +177,16 @@ def draw_boxes(img, coords, color):
     if not coords: return img
     i = img.copy()
     draw = ImageDraw.Draw(i)
-    for b in coords: draw.rectangle(b, outline=color, width=8)
+    # 这里设置 AI 看到的框的粗细，5px 比较适中
+    for b in coords: draw.rectangle(b, outline=color, width=5)
     return i
+
+def resize_for_canvas(image, canvas_width):
+    """将图片调整为适合画板显示的尺寸，解决不显示问题"""
+    w, h = image.size
+    ratio = canvas_width / w
+    new_h = int(h * ratio)
+    return image.resize((canvas_width, new_h), Image.Resampling.LANCZOS), new_h
 
 def call_api(key, model, prompt, map_b64, feat_b64, clean_b64, fmt):
     log_msg(f"发起请求: {model}")
@@ -264,47 +253,75 @@ def main_app():
         if st.button("清空日志"): st.session_state.logs=[]; st.rerun()
         if "logs" in st.session_state: st.markdown(f'<div class="log-container">{"<br>".join(st.session_state.logs[::-1])}</div>', unsafe_allow_html=True)
 
-    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · 兼容版</h1>", unsafe_allow_html=True)
-    if not CANVAS_AVAILABLE: st.error("Missing dependency"); st.stop()
+    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · 修复版</h1>", unsafe_allow_html=True)
+    if not CANVAS_AVAILABLE: st.error("依赖未安装，请运行 pip install"); st.stop()
 
     c1, c2 = st.columns(2)
-    cw = 400
+    # 设置画板宽度为固定值，防止图片过大
+    CANVAS_WIDTH = 400
+    
     with c1:
         f1 = st.file_uploader("图1 (场景)", type=["jpg","png"], key="u1")
         if f1: st.session_state.img1 = Image.open(f1).convert("RGB")
-        elif "img1" in st.session_state and not f1: del st.session_state.img1
+        elif "img1" in st.session_state and not f1: 
+            if "img1" in st.session_state: del st.session_state.img1
+
     with c2:
         f2 = st.file_uploader("图2 (商品)", type=["jpg","png"], key="u2")
         if f2: st.session_state.img2 = Image.open(f2).convert("RGB")
-        elif "img2" in st.session_state and not f2: del st.session_state.img2
+        elif "img2" in st.session_state and not f2: 
+            if "img2" in st.session_state: del st.session_state.img2
 
     if "img1" in st.session_state and "img2" in st.session_state:
         st.markdown("---")
         cc1, cc2 = st.columns(2)
-        i1, i2 = st.session_state.img1, st.session_state.img2
-        h1 = int(i1.height * (cw/i1.width))
-        h2 = int(i2.height * (cw/i2.width))
+        
+        # 预处理图片尺寸，确保显示正常
+        disp_img1, h_can1 = resize_for_canvas(st.session_state.img1, CANVAS_WIDTH)
+        disp_img2, h_can2 = resize_for_canvas(st.session_state.img2, CANVAS_WIDTH)
         
         with cc1:
             st.write("👉 **框选位置 (红框)**")
-            r1 = st_canvas(fill_color="rgba(255,0,0,0.1)", stroke_color="#F00", background_image=i1, height=h1, width=cw, drawing_mode="rect", key=f"c1_{f1.name}")
+            # stroke_width=2 设置画板上的框比较细，drawing_mode="rect"
+            res1 = st_canvas(
+                fill_color="rgba(255, 0, 0, 0.2)", 
+                stroke_width=2, 
+                stroke_color="#FF0000", 
+                background_image=disp_img1, 
+                height=h_can1, 
+                width=CANVAS_WIDTH, 
+                drawing_mode="rect", 
+                key=f"c1_{f1.name}"
+            )
+            
         with cc2:
             st.write("👉 **框选特征 (蓝框)**")
-            r2 = st_canvas(fill_color="rgba(0,0,255,0.1)", stroke_color="#00F", background_image=i2, height=h2, width=cw, drawing_mode="rect", key=f"c2_{f2.name}")
+            res2 = st_canvas(
+                fill_color="rgba(0, 0, 255, 0.2)", 
+                stroke_width=2, 
+                stroke_color="#0000FF", 
+                background_image=disp_img2, 
+                height=h_can2, 
+                width=CANVAS_WIDTH, 
+                drawing_mode="rect", 
+                key=f"c2_{f2.name}"
+            )
 
-        prompt = st.text_area("提示词", height=80)
+        prompt = st.text_area("提示词", height=80, placeholder="例如：把图2的商品放入图1的红框位置")
+        
         if st.button("🚀 开始生成", type="primary"):
             if not st.session_state.k: st.error("请配置 Key")
             elif not prompt: st.warning("请输入提示词")
             else:
-                # === 兼容性修改：使用 st.spinner 代替 st.status ===
                 with st.spinner("正在合成中，请稍候..."):
-                    b1 = get_coords(r1, i1.width, i1.height, cw, h1)
-                    b2 = get_coords(r2, i2.width, i2.height, cw, h2)
+                    # 获取坐标（基于显示尺寸计算）
+                    boxes1 = get_coords(res1, st.session_state.img1.width, st.session_state.img1.height, CANVAS_WIDTH, h_can1)
+                    boxes2 = get_coords(res2, st.session_state.img2.width, st.session_state.img2.height, CANVAS_WIDTH, h_can2)
                     
-                    ib1 = compress_img(draw_boxes(i1, b1, "#F00") if b1 else i1)
-                    ib2 = compress_img(draw_boxes(i2, b2, "#00F") if b2 else i2)
-                    ic = compress_img(i1)
+                    # 生成用于发送给 API 的图片（框会稍微加粗到 5px，让 AI 看得更清）
+                    ib1 = compress_img(draw_boxes(st.session_state.img1, boxes1, "#FF0000") if boxes1 else st.session_state.img1)
+                    ib2 = compress_img(draw_boxes(st.session_state.img2, boxes2, "#0000FF") if boxes2 else st.session_state.img2)
+                    ic = compress_img(st.session_state.img1)
                     
                     url, err, raw = call_api(st.session_state.k, st.session_state.m, prompt, ib1, ib2, ic, st.session_state.f)
                 
