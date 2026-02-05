@@ -11,7 +11,7 @@ from io import BytesIO
 from PIL import Image, ImageDraw
 
 # --- 1. 页面配置 (必须在最前) ---
-st.set_page_config(page_title="Nano Banana Pro - V4.0 Secure", layout="wide")
+st.set_page_config(page_title="Nano Banana Pro - V4.1 Cloud Ready", layout="wide")
 
 # --- 2. 基础环境与依赖 ---
 try:
@@ -182,7 +182,7 @@ def admin_sidebar_panel():
                 st.rerun()
 
 # ==========================================
-#              核心功能模块 (V4.0)
+#              核心功能模块 (V4.1)
 # ==========================================
 
 # --- 辅助函数 ---
@@ -312,9 +312,18 @@ def main_app():
         
         st.title("⚙️ 工作室配置")
         
-        # 加载配置
+        # --- 配置文件加载逻辑 (核心修改处) ---
         if "init_config" not in st.session_state:
-            if os.path.exists(CONFIG_FILE):
+            # 1. 优先尝试从 Streamlit Cloud Secrets 读取
+            if "ve_key" in st.secrets:
+                st.session_state.ve_key = st.secrets["ve_key"]
+                st.session_state.ve_model = st.secrets.get("ve_model", "gemini-2.0-flash-exp")
+                st.session_state.api_format = st.secrets.get("api_format", "chat")
+                # 标记一下是从云端读的，方便调试
+                st.session_state.is_cloud_key = True 
+            
+            # 2. 如果云端没有，再尝试读本地 config.json (本地开发兼容)
+            elif os.path.exists(CONFIG_FILE):
                 try:
                     with open(CONFIG_FILE, "r", encoding='utf-8') as f:
                         config = json.load(f)
@@ -322,17 +331,26 @@ def main_app():
                         st.session_state.ve_model = config.get("ve_model", "")
                         st.session_state.api_format = config.get("api_format", "chat")
                 except: pass
+            
             st.session_state.init_config = True
 
-        st.session_state.ve_key = st.text_input("API 密钥 (Key)", value=st.session_state.get("ve_key", ""), type="password")
+        # 显示 Key 输入框 (如果从云端加载了，这里会显示，也可以隐藏)
+        # 这里保留显示，但如果是云端加载的，用户可以在 Secrets 里改
+        st.session_state.ve_key = st.text_input(
+            "API 密钥 (Key)", 
+            value=st.session_state.get("ve_key", ""), 
+            type="password",
+            help="优先读取云端 Secrets 配置"
+        )
         st.session_state.ve_model = st.text_input("模型 ID", value=st.session_state.get("ve_model", ""), placeholder="gemini-2.0-flash-exp")
         api_fmt = st.radio("调用模式", ["chat", "image"], index=0 if st.session_state.get("api_format")=="chat" else 1)
         st.session_state.api_format = api_fmt
         
         if st.button("💾 保存配置"):
+            # 保存只会写入本地 json，不会修改云端 secrets
             with open(CONFIG_FILE, "w", encoding='utf-8') as f:
                 json.dump({"ve_key": st.session_state.ve_key, "ve_model": st.session_state.ve_model, "api_format": api_fmt}, f)
-            st.success("配置已保存")
+            st.success("配置已保存 (本地)")
         
         st.markdown("---")
         if st.button("🗑️ 清空日志"):
@@ -354,12 +372,10 @@ def main_app():
     # 图1 上传与处理
     with c1:
         f1 = st.file_uploader("📂 图1", type=["jpg", "png"], key="u1")
-        # 修复加载问题：强制存入 Session State
         if f1: 
             img1 = Image.open(f1).convert("RGB")
             st.session_state.cached_img1 = img1
         elif "cached_img1" in st.session_state and not f1:
-             # 如果用户删除了文件，清除缓存
              del st.session_state.cached_img1
 
     # 图2 上传与处理
@@ -382,7 +398,6 @@ def main_app():
             w1, h1 = img1.size
             h_can1 = int(h1 * (CANVAS_WIDTH/w1))
             
-            # 修复加载问题：Key 绑定 file_uploader 的 ID，确保切换图片时重绘
             key1 = f"can1_{f1.name if f1 else 'default'}"
             res1 = st_canvas(
                 fill_color="rgba(255, 0, 0, 0.1)", stroke_width=2, stroke_color="#FF0000", 
@@ -396,7 +411,6 @@ def main_app():
             w2, h2 = img2.size
             h_can2 = int(h2 * (CANVAS_WIDTH/w2))
             
-            # 修复加载问题：动态 Key
             key2 = f"can2_{f2.name if f2 else 'default'}"
             res2 = st_canvas(
                 fill_color="rgba(0, 0, 255, 0.1)", stroke_width=2, stroke_color="#0000FF", 
@@ -411,7 +425,7 @@ def main_app():
 
         if btn_start:
             if not st.session_state.ve_key or not st.session_state.ve_model:
-                st.error("❌ 请检查配置")
+                st.error("❌ 请检查配置 (API Key)")
             elif not prompt.strip():
                 st.warning("⚠️ 请输入提示词")
             else:
