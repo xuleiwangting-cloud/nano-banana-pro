@@ -1,4 +1,0 @@
-streamlit==1.32.0
-git+https://github.com/Asaurus1/streamlit-drawable-canvas.git@fix/update-for-new-streamlit
-pillow>=10.0.0
-requests>=2.31.0
