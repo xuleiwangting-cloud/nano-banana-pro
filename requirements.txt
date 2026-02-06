@@ -1,5 +1,5 @@
-streamlit==1.28.0
+streamlit==1.29.0
 streamlit-drawable-canvas==3.1.3
-Pillow
+pillow
 requests
 watchdog
