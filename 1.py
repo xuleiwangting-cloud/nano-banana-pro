@@ -298,4 +298,20 @@ def main_app():
                     ib2 = compress_img(draw_boxes(st.session_state.img2, boxes2, "#0000FF") if boxes2 else st.session_state.img2)
                     ic = compress_img(st.session_state.img1)
                     
-                    url, err, raw = call_
+                    url, err, raw = call_api(st.session_state.k, st.session_state.m, prompt, ib1, ib2, ic, st.session_state.f)
+                
+                if url:
+                    st.session_state.res = url
+                    st.success("✅ 生成成功!")
+                else:
+                    st.error(f"失败: {err}")
+                    with st.expander("日志"): st.code(raw)
+
+    if "res" in st.session_state:
+        st.markdown("---")
+        st.image(st.session_state.res, caption="结果", use_column_width=True)
+
+# 启动
+init_auth_state()
+if not st.session_state.user_info: login_page()
+else: main_app()
