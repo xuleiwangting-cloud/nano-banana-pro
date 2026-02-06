@@ -9,7 +9,7 @@ from io import BytesIO
 from PIL import Image, ImageDraw
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="Nano Banana Pro - Base64 Fix", layout="wide")
+st.set_page_config(page_title="Nano Banana Pro - Stable", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
@@ -18,11 +18,10 @@ try:
 except ImportError:
     CANVAS_AVAILABLE = False
 
-CONFIG_FILE = "config.json"
 USERS_FILE = "users.json"
 VECTOR_ENGINE_BASE = "https://api.vectorengine.ai/v1"
 
-# CSS 样式 (强制白底，防止黑屏)
+# CSS 样式
 st.markdown("""
 <style>
     .stApp { background-color: #f5f5f7; }
@@ -30,8 +29,9 @@ st.markdown("""
         max-height: 300px; overflow-y: auto; background-color: #1e1e1e; color: #00ff00; padding: 10px; border-radius: 5px; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap;
     }
     .stButton>button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; background-color: #FF6600; color: white; }
-    /* 修复 Canvas 在某些深色模式下的显示问题 */
+    /* 强制白底，防止黑屏 */
     div[data-testid="stImage"] { background-color: white; }
+    iframe { background-color: white; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -82,16 +82,8 @@ def save_users_to_github(users):
     except: pass
 
 # ==========================================
-#              工具函数 (修复核心)
+#              核心工具函数
 # ==========================================
-
-def image_to_base64(image):
-    """【核心修复】将图片转换为 Base64 字符串，绕过 Streamlit 文件服务"""
-    buffered = BytesIO()
-    # 强制保存为 PNG 以保持质量
-    image.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    return f"data:image/png;base64,{img_str}"
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -100,7 +92,6 @@ def resize_for_canvas(image, canvas_width):
     w, h = image.size
     ratio = canvas_width / w
     new_h = int(h * ratio)
-    # 强制转为 RGB，确保兼容性
     return image.resize((canvas_width, new_h), Image.Resampling.LANCZOS).convert("RGB"), new_h
 
 def compress_img(image, max_size=1024):
@@ -120,6 +111,7 @@ def draw_boxes(img, coords, color):
     if not coords: return img
     i = img.copy()
     draw = ImageDraw.Draw(i)
+    # 这里的 5 代表 AI 识别用的粗细
     for b in coords: draw.rectangle(b, outline=color, width=5)
     return i
 
@@ -237,7 +229,7 @@ def main_app():
         st.session_state.m = st.text_input("Model ID", value=st.session_state.get("m", ""))
         st.session_state.f = st.radio("Mode", ["chat", "image"], index=0 if st.session_state.get("f")=="chat" else 1)
 
-    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · 强力修复版</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · 稳定版</h1>", unsafe_allow_html=True)
     if not CANVAS_AVAILABLE: st.error("依赖未安装"); st.stop()
 
     c1, c2 = st.columns(2)
@@ -264,22 +256,15 @@ def main_app():
         disp_img1, h_can1 = resize_for_canvas(st.session_state.img1, CANVAS_WIDTH)
         disp_img2, h_can2 = resize_for_canvas(st.session_state.img2, CANVAS_WIDTH)
         
-        # 【核心修复】将图片转为 Base64 URL 字符串
-        # 这样 st_canvas 会把它当成网络图片直接读取，不再依赖本地文件路径
-        bg_url1 = image_to_base64(disp_img1)
-        bg_url2 = image_to_base64(disp_img2)
-
         with cc1:
             st.write("👉 **框选位置 (红框)**")
-            # 增加预览折叠框，用来检查上传是否成功
-            with st.expander("🔍 预览原图", expanded=False):
-                st.image(disp_img1, width=150)
+            # 这里的 stroke_width=1 是指您手动画框时的粗细
             res1 = st_canvas(
                 fill_color="rgba(255, 0, 0, 0.2)", 
                 stroke_width=1, 
                 stroke_color="#FF0000", 
-                background_color="#ffffff", # 强制白底
-                background_image=bg_url1,   # 传入 Base64 字符串
+                background_color="#ffffff",
+                background_image=disp_img1,  # ⚠️ 改回传 Image 对象
                 height=h_can1, 
                 width=CANVAS_WIDTH, 
                 drawing_mode="rect", 
@@ -288,14 +273,12 @@ def main_app():
             
         with cc2:
             st.write("👉 **框选特征 (蓝框)**")
-            with st.expander("🔍 预览原图", expanded=False):
-                st.image(disp_img2, width=150)
             res2 = st_canvas(
                 fill_color="rgba(0, 0, 255, 0.2)", 
                 stroke_width=1, 
                 stroke_color="#0000FF", 
                 background_color="#ffffff",
-                background_image=bg_url2, # 传入 Base64 字符串
+                background_image=disp_img2, # ⚠️ 改回传 Image 对象
                 height=h_can2, 
                 width=CANVAS_WIDTH, 
                 drawing_mode="rect", 
@@ -312,7 +295,6 @@ def main_app():
                     boxes1 = get_coords(res1, st.session_state.img1.width, st.session_state.img1.height, CANVAS_WIDTH, h_can1)
                     boxes2 = get_coords(res2, st.session_state.img2.width, st.session_state.img2.height, CANVAS_WIDTH, h_can2)
                     
-                    # 发送时用粗框(5px)，画图时用细框(1px)
                     ib1 = compress_img(draw_boxes(st.session_state.img1, boxes1, "#FF0000") if boxes1 else st.session_state.img1)
                     ib2 = compress_img(draw_boxes(st.session_state.img2, boxes2, "#0000FF") if boxes2 else st.session_state.img2)
                     ic = compress_img(st.session_state.img1)
