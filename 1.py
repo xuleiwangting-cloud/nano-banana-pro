@@ -9,7 +9,7 @@ from io import BytesIO
 from PIL import Image, ImageDraw
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="Nano Banana Pro - Final Fix", layout="wide")
+st.set_page_config(page_title="Nano Banana Pro - Py3.10 Fix", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
@@ -162,7 +162,7 @@ def init_auth_state():
     if "auth_page" not in st.session_state: st.session_state.auth_page = "login"
 
 def login_page():
-    st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (Final Fix)</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (Py3.10版)</h2>", unsafe_allow_html=True)
     users = load_users_from_github()
     if not users: st.warning("⚠️ 请注册管理员账号")
 
@@ -230,7 +230,7 @@ def main_app():
         st.session_state.m = st.text_input("Model ID", value=st.session_state.get("m", ""))
         st.session_state.f = st.radio("Mode", ["chat", "image"], index=0 if st.session_state.get("f")=="chat" else 1)
 
-    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · Final Fix</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · Py3.10 Fix</h1>", unsafe_allow_html=True)
     if not CANVAS_AVAILABLE: st.error("依赖未安装"); st.stop()
 
     c1, c2 = st.columns(2)
