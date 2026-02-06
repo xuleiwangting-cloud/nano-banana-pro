@@ -13,7 +13,8 @@ st.set_page_config(page_title="Nano Banana Pro - Stable 1.32", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
-    from streamlit_drawable_canvas import st_canvas
+    # 修复点：使用 _fix 版本的库，专门解决云端白屏问题
+    from streamlit_drawable_canvas_fix import st_canvas
     CANVAS_AVAILABLE = True
 except ImportError:
     st.error("❌ 插件未安装，请重启应用")
@@ -22,7 +23,7 @@ except ImportError:
 USERS_FILE = "users.json"
 VECTOR_ENGINE_BASE = "https://api.vectorengine.ai/v1"
 
-# CSS: 仅保留核心样式，移除所有背景颜色相关的 hack，防止冲突
+# CSS: 基础样式
 st.markdown("""
 <style>
     .stApp { background-color: #f5f5f7; }
@@ -89,12 +90,11 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def resize_for_canvas(image, canvas_width):
-    # 使用 Pillow 9.x 兼容的方式
     w, h = image.size
     ratio = canvas_width / w
     new_h = int(h * ratio)
-    # 强制转换为 RGBA，解决某些浏览器不显示 RGB JPEG 的问题
-    return image.resize((canvas_width, new_h), Image.Resampling.LANCZOS).convert("RGBA"), new_h
+    # 修复版通常对 RGB 支持更好，我们保持 RGB
+    return image.resize((canvas_width, new_h), Image.Resampling.LANCZOS).convert("RGB"), new_h
 
 def compress_img(image, max_size=1024):
     img = image.copy().convert("RGB")
@@ -260,14 +260,12 @@ def main_app():
         
         with cc1:
             st.write("👉 **框选位置 (红框)**")
-            # 修改：设置 background_color 为浅灰 "#eee"，确保即使图片不显示也有背景
             res1 = st_canvas(
                 fill_color="rgba(255, 0, 0, 0.2)", 
                 stroke_width=1, stroke_color="#FF0000", 
-                background_color="#eee",
                 background_image=disp_img1,
                 height=h_can1, width=CANVAS_WIDTH, 
-                drawing_mode="rect", key=f"c1_{st.session_state.last_f1}_v2"
+                drawing_mode="rect", key=f"c1_{st.session_state.last_f1}"
             )
             
         with cc2:
@@ -275,10 +273,9 @@ def main_app():
             res2 = st_canvas(
                 fill_color="rgba(0, 0, 255, 0.2)", 
                 stroke_width=1, stroke_color="#0000FF", 
-                background_color="#eee",
                 background_image=disp_img2,
                 height=h_can2, width=CANVAS_WIDTH, 
-                drawing_mode="rect", key=f"c2_{st.session_state.last_f2}_v2"
+                drawing_mode="rect", key=f"c2_{st.session_state.last_f2}"
             )
 
         prompt = st.text_area("提示词", height=80, placeholder="例如：把图2的商品放入图1的红框位置")
