@@ -22,11 +22,10 @@ except ImportError:
 USERS_FILE = "users.json"
 VECTOR_ENGINE_BASE = "https://api.vectorengine.ai/v1"
 
-# CSS: 强制白底 (已移除导致覆盖的 iframe 样式)
+# CSS: 基础样式
 st.markdown("""
 <style>
     .stApp { background-color: #f5f5f7; }
-    div[data-testid="stImage"] { background-color: white; }
     .stButton>button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; background-color: #FF6600; color: white; }
 </style>
 """, unsafe_allow_html=True)
@@ -93,7 +92,6 @@ def resize_for_canvas(image, canvas_width):
     w, h = image.size
     ratio = canvas_width / w
     new_h = int(h * ratio)
-    # 修改点：改回 RGB，配合 0.9.5 版本更稳定
     return image.resize((canvas_width, new_h), Image.Resampling.LANCZOS).convert("RGB"), new_h
 
 def compress_img(image, max_size=1024):
@@ -260,10 +258,11 @@ def main_app():
         
         with cc1:
             st.write("👉 **框选位置 (红框)**")
-            # 修改点：移除 background_color，避免遮挡图片。使用 0.9.5+ 版本后图片会自动显示
+            # 修改点：添加 background_color="rgba(0, 0, 0, 0)" 强制背景透明
             res1 = st_canvas(
                 fill_color="rgba(255, 0, 0, 0.2)", 
                 stroke_width=1, stroke_color="#FF0000", 
+                background_color="rgba(0, 0, 0, 0)",
                 background_image=disp_img1,
                 height=h_can1, width=CANVAS_WIDTH, 
                 drawing_mode="rect", key=f"c1_{st.session_state.last_f1}"
@@ -274,6 +273,7 @@ def main_app():
             res2 = st_canvas(
                 fill_color="rgba(0, 0, 255, 0.2)", 
                 stroke_width=1, stroke_color="#0000FF", 
+                background_color="rgba(0, 0, 0, 0)",
                 background_image=disp_img2,
                 height=h_can2, width=CANVAS_WIDTH, 
                 drawing_mode="rect", key=f"c2_{st.session_state.last_f2}"
