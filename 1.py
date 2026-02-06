@@ -2,14 +2,14 @@ import streamlit as st
 import hashlib
 import json
 import os
+import base64
 import requests
 import datetime
-import base64
 from io import BytesIO
 from PIL import Image, ImageDraw
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="Nano Banana Pro - Stable Fix", layout="wide")
+st.set_page_config(page_title="Nano Banana Pro - Final Fix", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
@@ -21,7 +21,7 @@ except ImportError:
 USERS_FILE = "users.json"
 VECTOR_ENGINE_BASE = "https://api.vectorengine.ai/v1"
 
-# CSS 样式
+# CSS: 强制白底
 st.markdown("""
 <style>
     .stApp { background-color: #f5f5f7; }
@@ -76,8 +76,16 @@ def save_users_to_github(users):
     except: pass
 
 # ==========================================
-#              核心工具
+#              核心工具：Base64 转换
 # ==========================================
+
+def image_to_base64(image):
+    """把图片转成字符串，解决白屏的核心函数"""
+    buffered = BytesIO()
+    # 强制保存为 PNG
+    image.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    return f"data:image/png;base64,{img_str}"
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -154,7 +162,7 @@ def init_auth_state():
     if "auth_page" not in st.session_state: st.session_state.auth_page = "login"
 
 def login_page():
-    st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (稳定版)</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (Final Fix)</h2>", unsafe_allow_html=True)
     users = load_users_from_github()
     if not users: st.warning("⚠️ 请注册管理员账号")
 
@@ -222,7 +230,7 @@ def main_app():
         st.session_state.m = st.text_input("Model ID", value=st.session_state.get("m", ""))
         st.session_state.f = st.radio("Mode", ["chat", "image"], index=0 if st.session_state.get("f")=="chat" else 1)
 
-    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · 修复版</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · Final Fix</h1>", unsafe_allow_html=True)
     if not CANVAS_AVAILABLE: st.error("依赖未安装"); st.stop()
 
     c1, c2 = st.columns(2)
@@ -245,18 +253,22 @@ def main_app():
         st.markdown("---")
         cc1, cc2 = st.columns(2)
         
-        # 预处理图片尺寸
+        # 调整尺寸
         disp_img1, h_can1 = resize_for_canvas(st.session_state.img1, CANVAS_WIDTH)
         disp_img2, h_can2 = resize_for_canvas(st.session_state.img2, CANVAS_WIDTH)
         
+        # 【关键】转成 Base64 字符串
+        bg_url1 = image_to_base64(disp_img1)
+        bg_url2 = image_to_base64(disp_img2)
+
         with cc1:
             st.write("👉 **框选位置 (红框)**")
-            # stroke_width=1 是您画框的粗细
+            # 传 Base64 字符串给画板，Canvas 3.1.3 支持这个
             res1 = st_canvas(
                 fill_color="rgba(255, 0, 0, 0.2)", 
                 stroke_width=1, stroke_color="#FF0000", 
                 background_color="#ffffff",
-                background_image=disp_img1,  # 直接传 PIL Image
+                background_image=bg_url1,
                 height=h_can1, width=CANVAS_WIDTH, 
                 drawing_mode="rect", key=f"c1_{st.session_state.last_f1}"
             )
@@ -267,7 +279,7 @@ def main_app():
                 fill_color="rgba(0, 0, 255, 0.2)", 
                 stroke_width=1, stroke_color="#0000FF", 
                 background_color="#ffffff",
-                background_image=disp_img2, # 直接传 PIL Image
+                background_image=bg_url2,
                 height=h_can2, width=CANVAS_WIDTH, 
                 drawing_mode="rect", key=f"c2_{st.session_state.last_f2}"
             )
@@ -286,20 +298,4 @@ def main_app():
                     ib2 = compress_img(draw_boxes(st.session_state.img2, boxes2, "#0000FF") if boxes2 else st.session_state.img2)
                     ic = compress_img(st.session_state.img1)
                     
-                    url, err, raw = call_api(st.session_state.k, st.session_state.m, prompt, ib1, ib2, ic, st.session_state.f)
-                
-                if url:
-                    st.session_state.res = url
-                    st.success("✅ 生成成功!")
-                else:
-                    st.error(f"失败: {err}")
-                    with st.expander("日志"): st.code(raw)
-
-    if "res" in st.session_state:
-        st.markdown("---")
-        st.image(st.session_state.res, caption="结果", use_column_width=True)
-
-# 启动
-init_auth_state()
-if not st.session_state.user_info: login_page()
-else: main_app()
+                    url, err, raw = call_
