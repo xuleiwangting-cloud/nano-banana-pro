@@ -9,7 +9,7 @@ from io import BytesIO
 from PIL import Image, ImageDraw
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="Nano Banana Pro - PC Version", layout="wide")
+st.set_page_config(page_title="Nano Banana Pro - Syntax Fixed", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
@@ -43,9 +43,14 @@ def load_users_from_github():
     token, repo = get_github_config()
     if not token or not repo:
         if os.path.exists(USERS_FILE):
-            try: with open(USERS_FILE, "r", encoding="utf-8") as f: return json.load(f)
-            except: return {}
+            # --- 修复：展开为多行 ---
+            try:
+                with open(USERS_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except:
+                return {}
         return {}
+        
     url = f"https://api.github.com/repos/{repo}/contents/{USERS_FILE}"
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     try:
@@ -54,26 +59,42 @@ def load_users_from_github():
             content = base64.b64decode(resp.json()["content"]).decode("utf-8")
             return json.loads(content)
         return {}
-    except: return {}
+    except:
+        return {}
 
 def save_users_to_github(users):
-    try: with open(USERS_FILE, "w", encoding="utf-8") as f: json.dump(users, f, indent=4)
-    except: pass
+    # --- 修复：展开为多行 ---
+    try:
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(users, f, indent=4)
+    except:
+        pass
+        
     token, repo = get_github_config()
-    if not token or not repo: return
+    if not token or not repo:
+        return
+        
     url = f"https://api.github.com/repos/{repo}/contents/{USERS_FILE}"
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     json_str = json.dumps(users, indent=4)
     content_b64 = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
+    
     sha = None
     try:
         get_resp = requests.get(url, headers=headers)
-        if get_resp.status_code == 200: sha = get_resp.json()["sha"]
-    except: pass
+        if get_resp.status_code == 200:
+            sha = get_resp.json()["sha"]
+    except:
+        pass
+        
     data = {"message": "Update users", "content": content_b64}
-    if sha: data["sha"] = sha
-    try: requests.put(url, headers=headers, json=data)
-    except: pass
+    if sha:
+        data["sha"] = sha
+        
+    try:
+        requests.put(url, headers=headers, json=data)
+    except:
+        pass
 
 # ==========================================
 #              核心工具：Base64 转换
@@ -162,7 +183,7 @@ def init_auth_state():
     if "auth_page" not in st.session_state: st.session_state.auth_page = "login"
 
 def login_page():
-    st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (电脑专用版)</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (电脑修复版)</h2>", unsafe_allow_html=True)
     users = load_users_from_github()
     if not users: st.warning("⚠️ 请注册管理员账号")
 
@@ -230,7 +251,7 @@ def main_app():
         st.session_state.m = st.text_input("Model ID", value=st.session_state.get("m", ""))
         st.session_state.f = st.radio("Mode", ["chat", "image"], index=0 if st.session_state.get("f")=="chat" else 1)
 
-    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · 电脑专用版</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · 电脑修复版</h1>", unsafe_allow_html=True)
     if not CANVAS_AVAILABLE: st.error("依赖未安装"); st.stop()
 
     c1, c2 = st.columns(2)
