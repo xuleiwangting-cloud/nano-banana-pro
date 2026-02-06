@@ -4,24 +4,24 @@ import json
 import os
 import requests
 import datetime
-import base64
 from io import BytesIO
 from PIL import Image, ImageDraw
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="Nano Banana Pro - Stable 1.32", layout="wide")
+st.set_page_config(page_title="Nano Banana Pro - Modern PC", layout="wide")
 
-# --- 2. 基础环境 ---
+# --- 2. 基础环境与自检 ---
 try:
     from streamlit_drawable_canvas import st_canvas
     CANVAS_AVAILABLE = True
 except ImportError:
-    CANVAS_AVAILABLE = False
+    st.error("❌ 插件未安装，请检查 requirements.txt")
+    st.stop()
 
 USERS_FILE = "users.json"
 VECTOR_ENGINE_BASE = "https://api.vectorengine.ai/v1"
 
-# CSS: 强制白底
+# CSS: 电脑版美化 + 强制白底
 st.markdown("""
 <style>
     .stApp { background-color: #f5f5f7; }
@@ -32,7 +32,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-#              GitHub 数据同步
+#              GitHub 数据同步 (带防崩溃保护)
 # ==========================================
 def get_github_config():
     if "github_token" in st.secrets and "repo_name" in st.secrets:
@@ -41,37 +41,42 @@ def get_github_config():
 
 def load_users_from_github():
     token, repo = get_github_config()
-    if not token or not repo:
-        if os.path.exists(USERS_FILE):
-            try:
-                with open(USERS_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-        
-    url = f"https://api.github.com/repos/{repo}/contents/{USERS_FILE}"
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-    try:
-        resp = requests.get(url, headers=headers)
-        if resp.status_code == 200:
-            content = base64.b64decode(resp.json()["content"]).decode("utf-8")
-            return json.loads(content)
-        return {}
-    except:
-        return {}
+    # 优先读云端
+    if token and repo:
+        url = f"https://api.github.com/repos/{repo}/contents/{USERS_FILE}"
+        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+        try:
+            resp = requests.get(url, headers=headers)
+            if resp.status_code == 200:
+                import base64
+                content = base64.b64decode(resp.json()["content"]).decode("utf-8")
+                return json.loads(content)
+        except:
+            pass # 读取失败就降级到本地
+            
+    # 降级读本地 (带防崩溃)
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if not content: return {} # 文件为空
+                return json.loads(content)
+        except Exception:
+            return {} # 文件损坏，返回空字典，防止崩溃
+    return {}
 
 def save_users_to_github(users):
+    # 保存本地
     try:
         with open(USERS_FILE, "w", encoding="utf-8") as f:
             json.dump(users, f, indent=4)
-    except:
-        pass
-        
+    except: pass
+    
+    # 同步云端
     token, repo = get_github_config()
-    if not token or not repo:
-        return
-        
+    if not token or not repo: return
+    
+    import base64
     url = f"https://api.github.com/repos/{repo}/contents/{USERS_FILE}"
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     json_str = json.dumps(users, indent=4)
@@ -80,19 +85,13 @@ def save_users_to_github(users):
     sha = None
     try:
         get_resp = requests.get(url, headers=headers)
-        if get_resp.status_code == 200:
-            sha = get_resp.json()["sha"]
-    except:
-        pass
-        
+        if get_resp.status_code == 200: sha = get_resp.json()["sha"]
+    except: pass
+    
     data = {"message": "Update users", "content": content_b64}
-    if sha:
-        data["sha"] = sha
-        
-    try:
-        requests.put(url, headers=headers, json=data)
-    except:
-        pass
+    if sha: data["sha"] = sha
+    try: requests.put(url, headers=headers, json=data)
+    except: pass
 
 # ==========================================
 #              核心工具
@@ -108,6 +107,7 @@ def resize_for_canvas(image, canvas_width):
     return image.resize((canvas_width, new_h), Image.Resampling.LANCZOS).convert("RGB"), new_h
 
 def compress_img(image, max_size=1024):
+    import base64
     img = image.copy().convert("RGB")
     if max(img.size) > max_size:
         scale = max_size / max(img.size)
@@ -159,6 +159,7 @@ def call_api(key, model, prompt, map_b64, feat_b64, clean_b64, fmt):
             url = d.get("url") or (f"data:image/jpeg;base64,{d['b64_json']}" if "b64_json" in d else None)
         if not url and "choices" in rj:
             c = rj["choices"][0]["message"]["content"]
+            import re
             m = re.search(r'\((https?://\S+|data:image/[^;]+;base64,[^\)]+)\)', c)
             if m: url = m.group(1)
         return url, None, resp.text
@@ -173,9 +174,12 @@ def init_auth_state():
     if "auth_page" not in st.session_state: st.session_state.auth_page = "login"
 
 def login_page():
-    st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (Py3.10 Stable)</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (PC版)</h2>", unsafe_allow_html=True)
     users = load_users_from_github()
-    if not users: st.warning("⚠️ 请注册管理员账号")
+    
+    # 自动初始化管理员 (如果文件损坏或为空)
+    if not users:
+        st.warning("⚠️ 系统初始化中，请注册管理员账号")
 
     tabs = st.tabs(["登录", "注册账号"])
     with tabs[0]:
@@ -185,10 +189,11 @@ def login_page():
             if st.form_submit_button("登录"):
                 if u not in users: st.error("用户不存在")
                 elif users[u]["password"] != hash_password(p): st.error("密码错误")
-                elif not users[u].get("approved", False): st.error("🚫 待审核")
+                elif not users[u].get("approved", False): st.error("🚫 账号待审核")
                 else:
                     st.session_state.user_info = {"username": u, "role": users[u].get("role", "user")}
-                    st.success("成功"); st.rerun()
+                    st.success("登录成功")
+                    st.rerun()
     with tabs[1]:
         with st.form("reg"):
             nu = st.text_input("用户名")
@@ -197,7 +202,7 @@ def login_page():
             if st.form_submit_button("注册"):
                 if not nu or not np: st.error("不能为空")
                 elif np != np2: st.error("密码不一致")
-                elif nu in users: st.error("已存在")
+                elif nu in users: st.error("用户已存在")
                 else:
                     is_first = (len(users) == 0)
                     users[nu] = {
@@ -207,8 +212,8 @@ def login_page():
                         "created_at": str(datetime.datetime.now())
                     }
                     save_users_to_github(users)
-                    if is_first: st.success("管理员注册成功"); st.rerun()
-                    else: st.info("申请已提交，等待审核")
+                    if is_first: st.success("🎉 管理员注册成功，请登录")
+                    else: st.info("✅ 申请已提交，等待管理员审核")
 
 def admin_panel():
     if st.session_state.user_info and st.session_state.user_info["role"] == "admin":
@@ -218,8 +223,8 @@ def admin_panel():
             for u, d in users.items():
                 if u == st.session_state.user_info["username"]: continue
                 c1, c2 = st.columns([3,2])
-                c1.text(f"{u} {'✅' if d['approved'] else '⏳'}")
-                if not d['approved']:
+                c1.text(f"{u} {'✅' if d.get('approved') else '⏳'}")
+                if not d.get('approved'):
                     if c2.button("通过", key=f"a_{u}"): users[u]['approved']=True; dirty=True
                 else:
                     if c2.button("冻结", key=f"b_{u}"): users[u]['approved']=False; dirty=True
@@ -241,8 +246,8 @@ def main_app():
         st.session_state.m = st.text_input("Model ID", value=st.session_state.get("m", ""))
         st.session_state.f = st.radio("Mode", ["chat", "image"], index=0 if st.session_state.get("f")=="chat" else 1)
 
-    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · PC 1.32</h1>", unsafe_allow_html=True)
-    if not CANVAS_AVAILABLE: st.error("依赖未安装"); st.stop()
+    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · PC 专用版</h1>", unsafe_allow_html=True)
+    if not CANVAS_AVAILABLE: st.error("❌ 依赖未加载，请重启应用"); st.stop()
 
     c1, c2 = st.columns(2)
     CANVAS_WIDTH = 400
@@ -270,12 +275,12 @@ def main_app():
         
         with cc1:
             st.write("👉 **框选位置 (红框)**")
-            # 直接传递 Image 对象 (Streamlit 1.32.0 支持)
+            # 标准传图，配合最新插件，高清且稳定
             res1 = st_canvas(
                 fill_color="rgba(255, 0, 0, 0.2)", 
                 stroke_width=1, stroke_color="#FF0000", 
                 background_color="#ffffff",
-                background_image=disp_img1,
+                background_image=disp_img1, 
                 height=h_can1, width=CANVAS_WIDTH, 
                 drawing_mode="rect", key=f"c1_{st.session_state.last_f1}"
             )
@@ -286,7 +291,7 @@ def main_app():
                 fill_color="rgba(0, 0, 255, 0.2)", 
                 stroke_width=1, stroke_color="#0000FF", 
                 background_color="#ffffff",
-                background_image=disp_img2,
+                background_image=disp_img2, 
                 height=h_can2, width=CANVAS_WIDTH, 
                 drawing_mode="rect", key=f"c2_{st.session_state.last_f2}"
             )
