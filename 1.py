@@ -5,6 +5,7 @@ import os
 import requests
 import datetime
 import base64
+import numpy as np
 from io import BytesIO
 from PIL import Image, ImageDraw
 
@@ -202,7 +203,7 @@ def login_page():
                     }
                     save_users_to_github(users)
                     if is_first: st.success("管理员注册成功"); st.rerun()
-                    else: st.info("申请已提交，等待审核")
+                    else: st.info("申请已提交,等待审核")
 
 def admin_panel():
     if st.session_state.user_info and st.session_state.user_info["role"] == "admin":
@@ -266,22 +267,28 @@ def main_app():
             st.write("👉 **框选位置 (红框)**")
             res1 = st_canvas(
                 fill_color="rgba(255, 0, 0, 0.2)", 
-                stroke_width=1, stroke_color="#FF0000", 
+                stroke_width=1, 
+                stroke_color="#FF0000", 
                 background_color="#ffffff",
-                background_image=disp_img1,  # 直接传 PIL Image
-                height=h_can1, width=CANVAS_WIDTH, 
-                drawing_mode="rect", key=f"c1_{st.session_state.last_f1}"
+                background_image=Image.fromarray(np.array(disp_img1)),  # 🔧 通过numpy数组传递
+                height=h_can1, 
+                width=CANVAS_WIDTH, 
+                drawing_mode="rect", 
+                key=f"c1_{st.session_state.last_f1}"
             )
             
         with cc2:
             st.write("👉 **框选特征 (蓝框)**")
             res2 = st_canvas(
                 fill_color="rgba(0, 0, 255, 0.2)", 
-                stroke_width=1, stroke_color="#0000FF", 
+                stroke_width=1, 
+                stroke_color="#0000FF", 
                 background_color="#ffffff",
-                background_image=disp_img2,  # 直接传 PIL Image
-                height=h_can2, width=CANVAS_WIDTH, 
-                drawing_mode="rect", key=f"c2_{st.session_state.last_f2}"
+                background_image=Image.fromarray(np.array(disp_img2)),  # 🔧 通过numpy数组传递
+                height=h_can2, 
+                width=CANVAS_WIDTH, 
+                drawing_mode="rect", 
+                key=f"c2_{st.session_state.last_f2}"
             )
 
         prompt = st.text_area("提示词", height=80, placeholder="例如：把图2的商品放入图1的红框位置")
