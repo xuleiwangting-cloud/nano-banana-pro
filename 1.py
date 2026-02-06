@@ -13,7 +13,8 @@ st.set_page_config(page_title="Nano Banana Pro - Stable 1.32", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
-    from streamlit_drawable_canvas_fix import st_canvas
+    # 修改点：移除了 _fix 后缀，匹配 requirements.txt 中的库名
+    from streamlit_drawable_canvas import st_canvas
     CANVAS_AVAILABLE = True
 except ImportError:
     st.error("❌ 插件未安装，请重启应用")
