@@ -9,7 +9,7 @@ from io import BytesIO
 from PIL import Image, ImageDraw
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="Nano Banana Pro - Standard", layout="wide")
+st.set_page_config(page_title="Nano Banana Pro - Stable 1.32", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
@@ -21,7 +21,7 @@ except ImportError:
 USERS_FILE = "users.json"
 VECTOR_ENGINE_BASE = "https://api.vectorengine.ai/v1"
 
-# CSS: 强制白底，防止黑屏或显示不清
+# CSS: 强制白底
 st.markdown("""
 <style>
     .stApp { background-color: #f5f5f7; }
@@ -173,7 +173,7 @@ def init_auth_state():
     if "auth_page" not in st.session_state: st.session_state.auth_page = "login"
 
 def login_page():
-    st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (标准版)</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔐 Nano Banana Pro (Py3.10 Stable)</h2>", unsafe_allow_html=True)
     users = load_users_from_github()
     if not users: st.warning("⚠️ 请注册管理员账号")
 
@@ -241,7 +241,7 @@ def main_app():
         st.session_state.m = st.text_input("Model ID", value=st.session_state.get("m", ""))
         st.session_state.f = st.radio("Mode", ["chat", "image"], index=0 if st.session_state.get("f")=="chat" else 1)
 
-    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · 标准版</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #FF6600;'>🍌 Nano Banana Pro · PC 1.32</h1>", unsafe_allow_html=True)
     if not CANVAS_AVAILABLE: st.error("依赖未安装"); st.stop()
 
     c1, c2 = st.columns(2)
@@ -270,24 +270,23 @@ def main_app():
         
         with cc1:
             st.write("👉 **框选位置 (红框)**")
-            # 【修复】：这里直接传 disp_img1 (图片对象)，不再传字符串
+            # 直接传递 Image 对象 (Streamlit 1.32.0 支持)
             res1 = st_canvas(
                 fill_color="rgba(255, 0, 0, 0.2)", 
                 stroke_width=1, stroke_color="#FF0000", 
                 background_color="#ffffff",
-                background_image=disp_img1,  # ⚠️ 关键修正：直接传图片对象
+                background_image=disp_img1,
                 height=h_can1, width=CANVAS_WIDTH, 
                 drawing_mode="rect", key=f"c1_{st.session_state.last_f1}"
             )
             
         with cc2:
             st.write("👉 **框选特征 (蓝框)**")
-            # 【修复】：同样直接传图片对象
             res2 = st_canvas(
                 fill_color="rgba(0, 0, 255, 0.2)", 
                 stroke_width=1, stroke_color="#0000FF", 
                 background_color="#ffffff",
-                background_image=disp_img2,  # ⚠️ 关键修正
+                background_image=disp_img2,
                 height=h_can2, width=CANVAS_WIDTH, 
                 drawing_mode="rect", key=f"c2_{st.session_state.last_f2}"
             )
