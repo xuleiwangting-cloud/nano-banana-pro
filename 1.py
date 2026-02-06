@@ -13,7 +13,7 @@ st.set_page_config(page_title="Nano Banana Pro - Stable 1.32", layout="wide")
 
 # --- 2. 基础环境 ---
 try:
-    # 修改点：移除了 _fix 后缀，匹配 requirements.txt 中的库名
+    # 保持使用标准库
     from streamlit_drawable_canvas import st_canvas
     CANVAS_AVAILABLE = True
 except ImportError:
@@ -23,12 +23,12 @@ except ImportError:
 USERS_FILE = "users.json"
 VECTOR_ENGINE_BASE = "https://api.vectorengine.ai/v1"
 
-# CSS: 强制白底
+# CSS: 修复样式冲突
+# 修改点：移除了 iframe { background-color: white; }，因为它会遮挡画布背景图
 st.markdown("""
 <style>
     .stApp { background-color: #f5f5f7; }
     div[data-testid="stImage"] { background-color: white; }
-    iframe { background-color: white; }
     .stButton>button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; background-color: #FF6600; color: white; }
 </style>
 """, unsafe_allow_html=True)
@@ -43,7 +43,6 @@ def get_github_config():
 
 def load_users_from_github():
     token, repo = get_github_config()
-    # 优先读云端
     if token and repo:
         try:
             url = f"https://api.github.com/repos/{repo}/contents/{USERS_FILE}"
@@ -54,23 +53,20 @@ def load_users_from_github():
                 return json.loads(content)
         except: pass
 
-    # 降级读本地 (带防崩溃保护)
     if os.path.exists(USERS_FILE):
         try:
             with open(USERS_FILE, "r", encoding="utf-8") as f:
                 content = f.read().strip()
                 return json.loads(content) if content else {}
-        except: return {} # 文件坏了就返回空，不报错
+        except: return {}
     return {}
 
 def save_users_to_github(users):
-    # 保存本地
     try:
         with open(USERS_FILE, "w", encoding="utf-8") as f:
             json.dump(users, f, indent=4)
     except: pass
     
-    # 同步云端
     token, repo = get_github_config()
     if not token or not repo: return
     try:
@@ -99,7 +95,8 @@ def resize_for_canvas(image, canvas_width):
     w, h = image.size
     ratio = canvas_width / w
     new_h = int(h * ratio)
-    return image.resize((canvas_width, new_h), Image.Resampling.LANCZOS).convert("RGB"), new_h
+    # 修改点：转换为 RGBA 以提高画布兼容性
+    return image.resize((canvas_width, new_h), Image.Resampling.LANCZOS).convert("RGBA"), new_h
 
 def compress_img(image, max_size=1024):
     img = image.copy().convert("RGB")
@@ -269,7 +266,7 @@ def main_app():
                 fill_color="rgba(255, 0, 0, 0.2)", 
                 stroke_width=1, stroke_color="#FF0000", 
                 background_color="#ffffff",
-                background_image=disp_img1,  # 直接传 PIL Image
+                background_image=disp_img1,
                 height=h_can1, width=CANVAS_WIDTH, 
                 drawing_mode="rect", key=f"c1_{st.session_state.last_f1}"
             )
@@ -280,7 +277,7 @@ def main_app():
                 fill_color="rgba(0, 0, 255, 0.2)", 
                 stroke_width=1, stroke_color="#0000FF", 
                 background_color="#ffffff",
-                background_image=disp_img2,  # 直接传 PIL Image
+                background_image=disp_img2,
                 height=h_can2, width=CANVAS_WIDTH, 
                 drawing_mode="rect", key=f"c2_{st.session_state.last_f2}"
             )
